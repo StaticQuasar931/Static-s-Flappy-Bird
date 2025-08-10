@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover" />
 <title>Flappy Static+ — StaticQuasar931</title>
-<meta name="description" content="Flappy Static+: Chromebook-friendly Flappy with coins, shop, power-ups, smart bot (secret 2143), themes, and difficulty ramp.">
+<meta name="description" content="Flappy Static+: Chromebook-friendly Flappy with coins, shop, power-ups, smart bot (secret 2143), themes, seeded runs, stats, and share cards.">
 <style>
   :root{
     --bg1:#0b0f1a; --bg2:#121a2b; --text:#eaf3ff; --muted:#98a4b3;
@@ -53,26 +53,26 @@
   .btn-ghost{background:transparent; border:1px dashed rgba(255,255,255,.16)}
   .btn-disabled{opacity:.5; pointer-events:none; filter:grayscale(.4)}
   .btn-success{
-    background:linear-gradient(180deg, rgba(54,222,122,.8), rgba(37,204,107,.6));
+    background:linear-gradient(180deg, rgba(54,222,122,.85), rgba(37,204,107,.65));
     color:#04140a; box-shadow: 0 8px 24px rgba(56,213,94,.25), inset 0 0 0 1px rgba(56,213,94,.35)
   }
   .btn-wide{min-width:170px}
 
   .toggle{display:inline-flex; align-items:center; gap:6px; font-size:13px;color:var(--muted)}
-  .toggle input{accent-color:var(--accent)}
+  .toggle input, .toggle select{accent-color:var(--accent)}
   #game{display:block; width:100vw; height:100vh; background:transparent; touch-action:none; outline:none}
 
   /* overlays/panels */
   #overlay{
     position:absolute; inset:0; display:grid; place-items:center; z-index:7;
-    background: rgba(0,0,0,.0); /* keep clicks outside panel detectable */
+    background: rgba(0,0,0,.0);
   }
   #overlay.hidden{display:none}
   .panel{
     pointer-events:auto; backdrop-filter: blur(8px);
     background: linear-gradient(180deg, rgba(255,255,255,.10), rgba(255,255,255,.04));
     border-radius:20px; padding:22px; box-shadow: 0 20px 60px rgba(0,0,0,.5), inset 0 0 0 1px rgba(255,255,255,.08);
-    max-width:min(640px, 94vw); position:relative;
+    max-width:min(720px, 94vw); position:relative;
   }
   .panel.small{max-width:360px}
   .title{font-size:28px; font-weight:900; letter-spacing:.2px; margin:0 0 8px}
@@ -100,6 +100,7 @@
 
   /* diff select row on game over */
   .diff-row{display:flex; gap:8px; margin-top:14px; flex-wrap:wrap; justify-content:center}
+  .home{position:absolute; right:12px; top:12px;}
 
   /* shop */
   #shopPanel .shop-grid{display:grid; grid-template-columns:repeat(auto-fill, minmax(220px,1fr)); gap:10px}
@@ -125,13 +126,14 @@
     opacity:.35;
   }
 
-  /* nicer gameover panel */
-  #gameOverPanel .head-row{
-    display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:8px
-  }
-  #gameOverPanel .home{
-    position:absolute; right:12px; top:12px;
-  }
+  /* stats grid */
+  .stats-grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:10px}
+  .stat-card{padding:12px; border-radius:12px; background:linear-gradient(180deg,rgba(255,255,255,.09),rgba(255,255,255,.03)); border:1px solid rgba(255,255,255,.08)}
+  .stat-title{font-size:12px; color:var(--muted); margin:0 0 6px}
+  .stat-value{font-size:20px; font-weight:900; margin:0}
+
+  /* share link text */
+  .share-link{display:block; text-align:center; margin-top:10px}
 </style>
 </head>
 <body data-theme="dark">
@@ -143,7 +145,10 @@
     </a>
     <div class="row">
       <button id="btnTheme" class="btn btn-pill" title="Cycle theme">Theme</button>
+      <button id="btnParallax" class="btn btn-pill" title="Toggle parallax background">Parallax</button>
       <button id="btnShop" class="btn btn-pill" title="Open Shop (Upgrades)">Shop</button>
+      <button id="btnStats" class="btn btn-pill" title="View lifetime stats">Stats</button>
+      <a id="btnFeedback" class="btn btn-pill" href="https://sites.google.com/view/staticquasar931/google-form" target="_blank" rel="noopener" title="Send feedback">Feedback</a>
       <button id="btnSecret" class="btn btn-pill" title="Enter secret code & extras">Secret</button>
       <button id="btnPause" class="btn btn-pill" title="Pause (P / ESC)">Pause</button>
       <button id="btnMute" class="btn btn-pill" title="Mute (M)">Mute</button>
@@ -189,7 +194,7 @@
   'use strict';
 
   /* =========================
-     DOM + Globals
+     DOM + Panels
      ========================= */
   const canvas = document.getElementById('game');
   const ctx = canvas.getContext('2d', { alpha: true });
@@ -202,8 +207,10 @@
   const btnLowPower = document.getElementById('btnLowPower');
   const btnReset = document.getElementById('btnReset');
   const btnShop = document.getElementById('btnShop');
+  const btnStats = document.getElementById('btnStats');
   const btnTheme = document.getElementById('btnTheme');
   const btnSecret = document.getElementById('btnSecret');
+  const btnParallax = document.getElementById('btnParallax');
 
   const statbar = document.getElementById('statbar');
   const ringsText = document.getElementById('ringsText');
@@ -213,10 +220,9 @@
   const effectsText = document.getElementById('effectsText');
   const levelText = document.getElementById('levelText');
   const xpFill = document.getElementById('xpFill');
-
   const crtOverlay = document.getElementById('crtOverlay');
 
-  // Start & GameOver panels are created once inside overlay
+  // Create panels once
   const startPanel = document.createElement('div');
   startPanel.className = 'panel';
   startPanel.id = 'startPanel';
@@ -254,6 +260,16 @@
         </select>
       </label>
     </div>
+
+    <div class="row" style="margin-top:12px; align-items:center;">
+      <label class="toggle" title="Use the same layout every time for practice">
+        <input type="checkbox" id="chkPractice"> Practice Seed Mode
+      </label>
+      <input id="seedInput" placeholder="Type a seed (text or number)" style="flex:1; min-width:180px; padding:10px;border-radius:10px;border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.08);color:var(--text);outline:none" title="Enter a seed or leave blank for random">
+      <button id="btnSeedRandom" class="btn btn-pill" title="Randomize seed">Randomize</button>
+      <button id="btnSeedUse" class="btn btn-success btn-pill" title="Use this seed">Use Seed</button>
+    </div>
+
     <div class="row" style="margin-top:12px; justify-content:center">
       <button id="btnStart" class="btn btn-success btn-pill btn-wide" title="Start (Space/Enter)">Start</button>
       <button id="btnStartShop" class="btn btn-pill" title="Open Shop without starting">Open Shop</button>
@@ -266,19 +282,23 @@
   gameOverPanel.id = 'gameOverPanel';
   gameOverPanel.innerHTML = `
     <button id="btnHome" class="btn btn-pill home" title="Back to home">Home</button>
-    <div class="head-row">
-      <h2 class="title" style="margin-bottom:6px">Run Complete</h2>
-    </div>
+    <h2 class="title" style="margin-bottom:6px">Run Complete</h2>
     <p class="subtitle" id="scoreLine"></p>
     <div class="row row-center" style="margin-top:8px">
       <button id="btnAgain" class="btn btn-success btn-pill btn-wide" title="Play again (Space/Enter)">Play Again</button>
-      <button id="btnShare" class="btn btn-pill btn-wide" title="Copy your score to clipboard">Copy Share Text</button>
+      <button id="btnShare" class="btn btn-pill btn-wide" title="Copy your score message">Copy Share Text</button>
+      <button id="btnShareCard" class="btn btn-pill btn-wide" title="Generate a share image">Share Card</button>
+    </div>
+    <a id="shareAnchor" class="share-link" href="https://sites.google.com/view/staticquasar931/gm3z" target="_blank" rel="noopener">Play Flappy Static+ (StaticQuasar931)</a>
+    <div class="row row-center" style="margin-top:10px">
+      <button id="btnCopySeed" class="btn btn-pill" title="Copy run seed to clipboard">Copy Seed</button>
     </div>
     <div class="diff-row" title="Switch difficulty for next run">
       <button class="btn btn-pill" id="diffEasy">Easy</button>
       <button class="btn btn-pill" id="diffMedium">Medium</button>
       <button class="btn btn-pill" id="diffHard">Hard</button>
     </div>
+    <p class="subtitle" id="deathMsg" style="text-align:center; margin-top:10px;"></p>
   `;
 
   const shopPanel = document.createElement('div');
@@ -364,12 +384,23 @@
     </div>
   `;
 
-  // Inject static panels
+  const statsPanel = document.createElement('div');
+  statsPanel.className = 'panel';
+  statsPanel.id = 'statsPanel';
+  statsPanel.innerHTML = `
+    <h3 class="title">Lifetime Stats</h3>
+    <div class="stats-grid" id="statsGrid"></div>
+    <div class="row" style="margin-top:12px; justify-content:flex-end">
+      <button class="btn btn-pill" id="closeStats" title="Close stats">Close</button>
+    </div>
+  `;
+
   overlay.appendChild(startPanel);
   overlay.appendChild(gameOverPanel);
   overlay.appendChild(shopPanel);
   overlay.appendChild(secretPanel);
   overlay.appendChild(pausePanel);
+  overlay.appendChild(statsPanel);
 
   // Start panel elements
   const chkLowPower = startPanel.querySelector('#chkLowPower');
@@ -379,15 +410,22 @@
   const btnStart = startPanel.querySelector('#btnStart');
   const btnStartShop = startPanel.querySelector('#btnStartShop');
   const bestLine = startPanel.querySelector('#bestLine');
+  const chkPractice = startPanel.querySelector('#chkPractice');
+  const seedInput = startPanel.querySelector('#seedInput');
+  const btnSeedRandom = startPanel.querySelector('#btnSeedRandom');
+  const btnSeedUse = startPanel.querySelector('#btnSeedUse');
 
   // Game over elements
   const btnAgain = gameOverPanel.querySelector('#btnAgain');
   const btnShare = gameOverPanel.querySelector('#btnShare');
+  const btnShareCard = gameOverPanel.querySelector('#btnShareCard');
   const scoreLine = gameOverPanel.querySelector('#scoreLine');
   const diffEasy = gameOverPanel.querySelector('#diffEasy');
   const diffMedium = gameOverPanel.querySelector('#diffMedium');
   const diffHard = gameOverPanel.querySelector('#diffHard');
   const btnHome = gameOverPanel.querySelector('#btnHome');
+  const deathMsgEl = gameOverPanel.querySelector('#deathMsg');
+  const btnCopySeed = gameOverPanel.querySelector('#btnCopySeed');
 
   // Shop elements
   const shopCoins = shopPanel.querySelector('#shopCoins');
@@ -416,28 +454,29 @@
   const btnUnpause = pausePanel.querySelector('#btnUnpause');
   const btnUnpauseDelay = pausePanel.querySelector('#btnUnpauseDelay');
 
+  // Stats
+  const statsGrid = statsPanel.querySelector('#statsGrid');
+  const closeStats = statsPanel.querySelector('#closeStats');
+
   /* =========================
-     Game + Profile State
+     Game + Profile + Stats
      ========================= */
   let W=0, H=0, DPR = Math.max(1, Math.min(2.5, window.devicePixelRatio || 1));
   let running=false, paused=false, gameOver=false, lowPower=false, muted=false;
   let lastTime=0, acc=0, dt=1000/60;
+  let parallax=true;
 
-  // Which base panel context we are in: 'start' | 'inrun' | 'gameover'
+  // panels
   let basePanel = 'start';
-  // Which modal panel is open (string id) or null
   let activePanelId = null;
   let pausedForModal = false;
   let delayResumeMs = 0;
 
-  const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
-  const RND=(a,b)=>a+Math.random()*(b-a);
-  const chance=(p)=>Math.random()<p;
-
+  // difficulty ramp parameters (deterministic by distance/pipes)
   const DIFFS = {
-    easy:   { name:'Easy',   gapMul:1.6, speed:0.92, move:false, coinSpawn:1.25, coinValue:1.0, expMult:0.7 },
-    medium: { name:'Medium', gapMul:1.0, speed:1.00, move:true,  coinSpawn:1.00, coinValue:1.0, expMult:1.0 },
-    hard:   { name:'Hard',   gapMul:0.68, speed:1.16, move:true,  coinSpawn:1.35, coinValue:1.35, expMult:1.5, wind:true }
+    easy:   { name:'Easy',   gapMul:1.60, speed:0.92, move:false, coinSpawn:1.25, coinValue:1.0, expMult:0.7, rampLen:80, gapShrink:0.18 },
+    medium: { name:'Medium', gapMul:1.00, speed:1.00, move:true,  coinSpawn:1.00, coinValue:1.0, expMult:1.0, rampLen:60, gapShrink:0.22 },
+    hard:   { name:'Hard',   gapMul:0.68, speed:1.16, move:true,  coinSpawn:1.35, coinValue:1.35, expMult:1.5, rampLen:45, gapShrink:0.28, wind:true }
   };
   let difficulty = localStorage.getItem('fs_diff') || 'medium';
 
@@ -456,6 +495,7 @@
     crtOverlay.style.display = (t==='static-crt') ? 'block' : 'none';
   }
 
+  // profile & upgrades (cheaper starts)
   const profile = {
     coins: 0, xp: 0, level: 1, best: 0,
     theme: localStorage.getItem('fs_theme') || 'dark',
@@ -465,12 +505,23 @@
   };
   setTheme(profile.theme);
 
+  // stats
+  const defaultStats = {
+    runs:0, totalScore:0, best:0, totalTimeMs:0,
+    coinsSpawned:0, coinsCollected:0,
+    ringsSpawned:0, ringsCollected:0,
+    puSpawned:0, puCollected:0,
+    winStreak:0, loseStreak:0, bestWinStreak:0, bestLoseStreak:0,
+    currentLowStreak:0, bestLowStreak:0 // consecutive runs with score <5
+  };
+  const stats = JSON.parse(localStorage.getItem('fs_stats')||JSON.stringify(defaultStats));
+
   const UP = {
-    exp:      { label:'EXP Booster',    base:100, scale:2.0, max:10, value:(lvl)=>1+0.10*lvl },
-    score:    { label:'Score Mult',     base:120, scale:2.2, max:10, value:(lvl)=>1+0.10*lvl },
-    duration: { label:'PU Duration',    base:90,  scale:1.8, max:10, value:(lvl)=>1+0.10*lvl },
-    freq:     { label:'PU Frequency',   base:110, scale:1.8, max:10, value:(lvl)=>1+0.10*lvl },
-    magnet:   { label:'Magnet Range',   base:80,  scale:1.75,max:12, value:(lvl)=>6*lvl }
+    exp:      { label:'EXP Booster',    base:60,  scale:1.8,  max:10, value:(lvl)=>1+0.10*lvl },
+    score:    { label:'Score Mult',     base:70,  scale:1.95, max:10, value:(lvl)=>1+0.10*lvl },
+    duration: { label:'PU Duration',    base:55,  scale:1.7,  max:10, value:(lvl)=>1+0.10*lvl },
+    freq:     { label:'PU Frequency',   base:60,  scale:1.75, max:10, value:(lvl)=>1+0.10*lvl },
+    magnet:   { label:'Magnet Range',   base:40,  scale:1.7,  max:12, value:(lvl)=>6*lvl }
   };
   function costOf(key, lvl){ return Math.floor( UP[key].base * Math.pow(UP[key].scale, lvl) ); }
   function saveProfile(){
@@ -483,6 +534,7 @@
     localStorage.setItem('flappyStaticPlusXP', profile.xp);
     localStorage.setItem('flappyStaticPlusLV', profile.level);
     localStorage.setItem('flappyStaticBest', profile.best);
+    localStorage.setItem('fs_stats', JSON.stringify(stats));
   }
   (()=>{
     const c = Number(localStorage.getItem('flappyStaticPlusCoins')); if (!Number.isNaN(c)) profile.coins=c;
@@ -504,9 +556,10 @@
   function xpMultiplier(){ return UP.exp.value(profile.upgrades.exp) * DIFFS[difficulty].expMult; }
   function scoreMultiplier(){ return UP.score.value(profile.upgrades.score); }
 
+  // run state
   const bird = { x:0,y:0, vx:0, vy:0, r:14, rot:0, alive:true };
-  let pipes=[], rings=[], coins=[], pickups=[], stars=[];
-  let score=0, ringCount=0, shieldMs=0, timeMs=0, ramp=0.35;
+  let pipes=[], rings=[], coins=[], pickups=[], stars=[], stars2=[], stars3=[];
+  let score=0, ringCount=0, shieldMs=0, timeMs=0, ramp=0.2, pipesPassed=0;
   let wind = { t:0, vx:0 };
 
   const active = { magnetMs:0, slowMs:0, shrinkMs:0, scoreMs:0, rocketMs:0, rocketCooldown:0 };
@@ -525,11 +578,37 @@
     }catch(e){}
   }
 
-  const staticImg = new Image();
-  staticImg.crossOrigin = 'anonymous';
+  // textures
+  const staticImg = new Image(); staticImg.crossOrigin = 'anonymous';
   staticImg.src = 'https://res.cloudinary.com/dcsrqennd/image/upload/v1754794352/607b720a5748a2ae22b9c2ebc44eb23130e0b023_uendui.jpg';
   let staticPattern = null;
   staticImg.onload = ()=>{ try{ staticPattern = ctx.createPattern(staticImg, 'repeat'); }catch(e){ staticPattern = null; } };
+
+  const qrImg = new Image(); qrImg.crossOrigin='anonymous';
+  qrImg.src = 'https://res.cloudinary.com/dcsrqennd/image/upload/v1733694622/frame_1_vmv9y3.png';
+
+  /* =========================
+     Seeded RNG (3 & 4)
+     ========================= */
+  let seededMode = false;
+  let runSeedStr = ''; // display
+  let rng = Math.random; // default
+  function xfnv1a(str){ // 32-bit hash of string
+    let h=2166136261>>>0;
+    for(let i=0;i<str.length;i++){ h^=str.charCodeAt(i); h=Math.imul(h,16777619); }
+    return h>>>0;
+  }
+  function mulberry32(a){ return function(){ let t = a += 0x6D2B79F5; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+  function setSeed(str){
+    seededMode = true;
+    runSeedStr = (str===''? (Math.random()*1e9>>>0).toString(36): String(str));
+    const h = xfnv1a(runSeedStr);
+    rng = mulberry32(h);
+  }
+  function clearSeed(){ seededMode=false; runSeedStr=''; rng=Math.random; }
+
+  const SRND=(a,b)=> a + (rng()*(b-a));
+  const SChance=(p)=> rng()<p;
 
   /* =========================
      Canvas + Utils
@@ -568,17 +647,15 @@
 
   /* =========================
      Overlay/Panel Manager
-     - closes only the active panel
-     - click outside to close
      ========================= */
   function hideAllPanels(){
-    [startPanel, gameOverPanel, shopPanel, secretPanel, pausePanel].forEach(p=>p.style.display='none');
+    [startPanel, gameOverPanel, shopPanel, secretPanel, pausePanel, statsPanel].forEach(p=>p.style.display='none');
   }
   function showOverlay(){ overlay.classList.remove('hidden'); }
   function hideOverlay(){ overlay.classList.add('hidden'); }
   function openPanel(panelId, {pause=true, from='inrun'}={}){
     activePanelId = panelId;
-    if (from) basePanel = from; // for start/gameover modals
+    if (from) basePanel = from;
     if (pause && running && !paused){ pausedForModal = true; togglePause(true); } else { pausedForModal=false; }
     showOverlay();
     hideAllPanels();
@@ -586,15 +663,13 @@
     statbar.style.display='none';
   }
   function closePanel(panelId){
-    if (activePanelId !== panelId) return; // only close that specific one
+    if (activePanelId !== panelId) return;
     activePanelId = null;
     if (basePanel==='start'){
-      // return to start panel overlay
       showOverlay(); hideAllPanels(); startPanel.style.display='block'; statbar.style.display='none';
     } else if (basePanel==='gameover'){
       showOverlay(); hideAllPanels(); gameOverPanel.style.display='block'; statbar.style.display='none';
     } else {
-      // in-run
       hideOverlay(); hideAllPanels(); statbar.style.display = (running && !gameOver) ? 'flex' : 'none';
       if (running && paused && !gameOver && pausedForModal){ togglePause(false); }
       canvas.focus({preventScroll:true});
@@ -605,11 +680,19 @@
   });
 
   /* =========================
+     Difficulty ramp (deterministic)
+     ========================= */
+  function rampPercent(){
+    const d = DIFFS[difficulty];
+    return Math.min(1, pipesPassed / d.rampLen);
+  }
+
+  /* =========================
      Game Assembly
      ========================= */
   function resetGame(){
-    pipes.length=0; rings.length=0; coins.length=0; pickups.length=0; stars.length=0;
-    score=0; ringCount=0; shieldMs=0; timeMs=0; ramp=0.35;
+    pipes.length=0; rings.length=0; coins.length=0; pickups.length=0; stars.length=0; stars2.length=0; stars3.length=0;
+    score=0; ringCount=0; shieldMs=0; timeMs=0; pipesPassed=0;
     wind.vx = 0; wind.t = 0;
 
     bird.x = Math.max(96, W*0.28);
@@ -617,8 +700,17 @@
 
     const sCount = lowPower ? 60 : 120;
     for(let i=0;i<sCount;i++){
-      stars.push({ x:Math.random()*W, y:Math.random()*H, r:Math.random()*1.8+0.4, spd:0.02+Math.random()*0.06, tw:Math.random() });
+      const R = seededMode ? SRND : (a,b)=>a+Math.random()*(b-a);
+      stars.push({ x:R(0,W), y:R(0,H), r:R(0.4,2.2), spd:R(0.02,0.06), tw:R(0,1) });
     }
+    if (parallax){
+      for(let i=0;i<(lowPower?30:60);i++){
+        const R = seededMode ? SRND : (a,b)=>a+Math.random()*(b-a);
+        stars2.push({ x:R(0,W), y:R(0,H), r:R(0.6,2.6), spd:R(0.03,0.09), tw:R(0,1) });
+        stars3.push({ x:R(0,W), y:R(0,H), r:R(0.8,3.0), spd:R(0.05,0.12), tw:R(0,1) });
+      }
+    }
+
     // first pipe way sooner
     let x=W+20;
     for(let i=0;i<5;i++){ addPipe(x, true); x+=BASE.PIPE_DIST; }
@@ -628,31 +720,44 @@
 
   function addPipe(x, initial=false){
     const diff = DIFFS[difficulty];
-    const baseGap = RND(BASE.GAP_MIN, BASE.GAP_MAX);
-    const gapH = clamp(baseGap * diff.gapMul, 90, 999);
+    const baseGap = (seededMode ? SRND(BASE.GAP_MIN, BASE.GAP_MAX) : (BASE.GAP_MIN + Math.random()*(BASE.GAP_MAX-BASE.GAP_MIN)));
+    const shrink = 1 - rampPercent()*diff.gapShrink;
+    const gapH = clamp(baseGap * diff.gapMul * shrink, 90, 999);
     const margin=40;
-    const gapY = RND(margin, H - BASE.FLOOR_H - margin - gapH);
-    const p = { x, gapY, gapH, passed:false, movePhase:Math.random()*Math.PI*2, id:Math.random().toString(36).slice(2), broken:false };
+    const R = seededMode ? SRND : (a,b)=>a+Math.random()*(b-a);
+    const gapY = R(margin, H - BASE.FLOOR_H - margin - gapH);
+    const p = { x, gapY, gapH, passed:false, movePhase:(seededMode?SRND(0,Math.PI*2):Math.random()*Math.PI*2), id:Math.random().toString(36).slice(2), broken:false };
     pipes.push(p);
 
     if (!initial){
-      if (chance(0.6)){ rings.push({ x: x+BASE.PIPE_W+40+Math.random()*40, y: gapY+gapH*0.5+RND(-18,18), r: BASE.RING_R, taken:false }); }
+      if (seededMode ? SChance(0.6) : Math.random()<0.6){
+        rings.push({ x: x+BASE.PIPE_W+40+(seededMode?SRND(0,40):Math.random()*40), y: gapY+gapH*0.5+(seededMode?SRND(-18,18): (Math.random()*36-18)), r: BASE.RING_R, taken:false });
+        stats.ringsSpawned++;
+      }
       const spawnBoost = UP.freq.value(profile.upgrades.freq) * diff.coinSpawn;
-      if (chance(0.35 * spawnBoost)){
-        const kind = chance(0.5)?'trail':'single';
+      const coinChance = 0.35 * spawnBoost;
+      if ((seededMode? SChance(coinChance) : Math.random()<coinChance)){
+        const kind = (seededMode? SChance(0.5) : Math.random()<0.5) ? 'trail':'single';
         if (kind==='single'){
-          coins.push({ x: x+BASE.PIPE_W+RND(50,90), y: gapY+gapH*0.5+RND(-16,16), r:8, v: diff.coinValue, taken:false });
+          coins.push({ x: x+BASE.PIPE_W+(seededMode?SRND(50,90): (50+Math.random()*40)), y: gapY+gapH*0.5+(seededMode?SRND(-16,16):(Math.random()*32-16)), r:8, v: diff.coinValue, taken:false });
+          stats.coinsSpawned+=1;
         }else{
-          const n= 3 + (chance(0.6)?2:0);
+          const n= 3 + ((seededMode? SChance(0.6) : Math.random()<0.6)?2:0);
           for(let i=0;i<n;i++){
-            coins.push({ x: x+BASE.PIPE_W+RND(40,100)+i*18, y: gapY+gapH*0.5+ (i%2?12:-12), r:8, v: diff.coinValue, taken:false });
+            coins.push({ x: x+BASE.PIPE_W+(seededMode?SRND(40,100):(40+Math.random()*60))+i*18, y: gapY+gapH*0.5+ (i%2?12:-12), r:8, v: diff.coinValue, taken:false });
           }
+          stats.coinsSpawned+=n;
         }
       }
-      if (chance(0.12 * UP.freq.value(profile.upgrades.freq))){
+      const puChance = 0.12 * UP.freq.value(profile.upgrades.freq);
+      if ((seededMode? SChance(puChance) : Math.random()<puChance)){
         const kinds = ['shield','magnet','slow','shrink','ghost','scorex','rocket'];
-        const k = kinds[Math.floor(Math.random()*kinds.length)];
-        pickups.push({ x: x+BASE.PIPE_W+RND(60,110), y: gapY+gapH*0.5+RND(-20,20), r:12, kind:k, taken:false, spin:Math.random()*6.28 });
+        const idx = Math.floor((seededMode?SRND(0,kinds.length):Math.random()*kinds.length));
+        const k = kinds[idx];
+        const px = x+BASE.PIPE_W+(seededMode?SRND(60,110):(60+Math.random()*50));
+        const py = gapY+gapH*0.5+(seededMode?SRND(-20,20):(Math.random()*40-20));
+        pickups.push({ x: px, y: py, r:12, kind:k, taken:false, spin:(seededMode?SRND(0,6.28):Math.random()*6.28) });
+        stats.puSpawned++;
       }
     }
   }
@@ -668,15 +773,24 @@
      ========================= */
   function flap(){ if (!running || paused || !bird.alive) return; bird.vy = BASE.FLAP; beep(1000, 0.05, 0.05); }
   function startGame(){
-    // pull latest toggles from start panel
+    // bring toggles
     if (basePanel==='start'){
       muted = !!chkMute.checked;
       lowPower = !!chkLowPower.checked;
+      parallax = !!parallax; // keep current
       const th = selTheme.value || profile.theme; setTheme(th);
       difficulty = selDiff.value || difficulty; localStorage.setItem('fs_diff', difficulty);
+
+      // seeds
+      if (chkPractice.checked){
+        setSeed(seedInput.value.trim());
+      } else {
+        clearSeed();
+      }
     }
     btnMute.textContent = muted ? 'Unmute' : 'Mute';
     btnLowPower.textContent = lowPower ? 'Low Power: On' : 'Low Power';
+    btnParallax.textContent = parallax ? 'Parallax: On' : 'Parallax';
     markDiffButtons();
 
     if (!audioCtx){ try{ audioCtx = new (window.AudioContext||window.webkitAudioContext)(); canAudio = true; }catch(e){ canAudio=false; } }
@@ -692,15 +806,61 @@
     canvas.focus({preventScroll:true});
   }
   function endGame(){
+    // Clear all effects on death
+    shieldMs=0; active.magnetMs=0; active.slowMs=0; active.shrinkMs=0; active.scoreMs=0; active.rocketMs=0; active.rocketCooldown=0;
+
     bird.alive=false; gameOver=true; running=false;
     profile.best = Math.max(profile.best, score);
+    stats.best = Math.max(stats.best, Math.floor(score));
+    stats.runs++; stats.totalScore += Math.floor(score); stats.totalTimeMs += timeMs;
+
+    // win/lose streaks (win = score >= 10; low streak = score <5)
+    const s = Math.floor(score);
+    if (s >= 10){ stats.winStreak++; stats.loseStreak=0; stats.bestWinStreak = Math.max(stats.bestWinStreak, stats.winStreak); }
+    else { stats.loseStreak++; stats.winStreak=0; stats.bestLoseStreak = Math.max(stats.bestLoseStreak, stats.loseStreak); }
+    if (s < 5){ stats.currentLowStreak++; stats.bestLowStreak = Math.max(stats.bestLowStreak, stats.currentLowStreak); }
+    else stats.currentLowStreak=0;
+
     saveProfile();
-    scoreLine.textContent = `Score ${Math.floor(score)} • Best ${Math.floor(profile.best)} • Coins ${profile.coins}`;
+
+    scoreLine.textContent = `Score ${Math.floor(score)} • Best ${Math.floor(profile.best)} • Coins ${profile.coins} • Mode ${DIFFS[difficulty].name}${runSeedStr?` • Seed ${runSeedStr}`:''}`;
     basePanel='gameover';
     showOverlay(); hideAllPanels(); gameOverPanel.style.display='block';
     statbar.style.display='none';
     document.getElementById('touchZone').classList.toggle('hidden', true);
+    deathMsgEl.textContent = randomDeathMessage();
     beep(220, 0.12, 0.06); beep(160, 0.12, 0.05);
+  }
+
+  const DEATH_LINES = [
+    "You bonked your head too hard.",
+    "Pipe 1 — Bird 0.",
+    "Gravity said hello.",
+    "The floor looked comfy.",
+    "Mind the gap… next time.",
+    "Wing day is not today.",
+    "That pipe was a hugger.",
+    "R.I.P. (Rest In Pipe).",
+    "You discovered the ceiling.",
+    "Oops! Wrong kind of fly.",
+    "Hydration break… permanently.",
+    "Turbulence got you.",
+    "You took the scenic route — into a pipe.",
+    "That wasn’t a coin, that was a corner.",
+    "The gap was shy.",
+    "Bird.exe needs an update.",
+    "Should’ve been a submarine.",
+    "Close! (But still a pipe.)",
+    "At least the music slapped.",
+    "The floor sends its regards."
+  ];
+  function randomDeathMessage(){
+    if (seededMode) { // deterministic but varied: use current rng
+      const idx = Math.floor(SRND(0, DEATH_LINES.length));
+      return DEATH_LINES[idx];
+    } else {
+      return DEATH_LINES[Math.floor(Math.random()*DEATH_LINES.length)];
+    }
   }
 
   function togglePause(pauseNow = !paused){
@@ -708,15 +868,12 @@
     paused = pauseNow;
     btnPause.textContent = paused ? 'Resume' : 'Pause';
     if (paused){
-      // show small pause menu
-      openPanel('pausePanel', {pause:false}); // don't toggle again
+      openPanel('pausePanel', {pause:false});
     }else{
       hideOverlay(); hideAllPanels();
     }
   }
-
   function startDelayedResume(){
-    // keep paused but hide pause menu and show countdown text for 3s
     delayResumeMs = 3000;
     countdownText.style.display = 'grid';
     closePanel('pausePanel');
@@ -725,12 +882,14 @@
   function toggleMute(){ muted=!muted; btnMute.textContent = muted ? 'Unmute' : 'Mute'; }
   function softReset(){ if (!running) return; resetGame(); }
 
-  // Buttons
+  // Buttons + Links
   btnPause.addEventListener('click', ()=>togglePause(true));
   btnMute.addEventListener('click', toggleMute);
   btnLowPower.addEventListener('click', ()=>{ lowPower=!lowPower; btnLowPower.textContent = lowPower ? 'Low Power: On' : 'Low Power'; });
+  btnParallax.addEventListener('click', ()=>{ parallax=!parallax; btnParallax.textContent = parallax ? 'Parallax: On' : 'Parallax'; });
   btnReset.addEventListener('click', softReset);
-  btnShop.addEventListener('click', ()=>{ openPanel('shopPanel', {pause:true, from:'inrun'}); updateShopUI(); });
+  btnShop.addEventListener('click', ()=>{ openPanel('shopPanel', {pause:true, from: basePanel}); updateShopUI(); });
+  btnStats.addEventListener('click', ()=>{ openPanel('statsPanel', {pause:false, from: basePanel}); renderStats(); });
   btnTheme.addEventListener('click', ()=>{
     const cur = document.body.getAttribute('data-theme');
     const idx = (THEMES.indexOf(cur)+1)%THEMES.length;
@@ -738,27 +897,39 @@
   });
   btnSecret.addEventListener('click', ()=>{ openPanel('secretPanel', {pause:true, from: basePanel}); renderBotControls(); setTimeout(()=>secretInput.focus(), 20); });
 
-  // Start panel actions
+  // Start panel
   btnStart.addEventListener('click', startGame);
   btnStartShop.addEventListener('click', ()=>{ openPanel('shopPanel', {pause:false, from:'start'}); updateShopUI(); });
+  btnSeedRandom.addEventListener('click', ()=>{
+    seedInput.value = (Math.random()*1e9>>>0).toString(36);
+  });
+  btnSeedUse.addEventListener('click', ()=>{
+    chkPractice.checked = true; toast('Seed ready — press Start');
+  });
 
-  // Game over actions
+  // Game over
   btnAgain.addEventListener('click', startGame);
   btnShare.addEventListener('click', ()=>{
-    const txt = `I scored ${Math.floor(score)} in Flappy Static+ (StaticQuasar931)! Try to beat me.`;
+    const url = 'https://sites.google.com/view/staticquasar931/gm3z';
+    const txt = `I scored ${Math.floor(score)} in Flappy Static+ (StaticQuasar931)! Mode: ${DIFFS[difficulty].name}${runSeedStr?` • Seed: ${runSeedStr}`:''} — Try it: ${url}`;
     navigator.clipboard?.writeText(txt);
-    btnShare.textContent='Copied!'; setTimeout(()=>btnShare.textContent='Copy Share Text', 1200);
+    btnShare.textContent='Copied!'; setTimeout(()=>btnShare.textContent='Copy Share Text', 1400);
+  });
+  btnShareCard.addEventListener('click', generateShareCard);
+  btnCopySeed.addEventListener('click', ()=>{
+    if (!runSeedStr){ toast('No seed for this run'); return; }
+    navigator.clipboard?.writeText(runSeedStr); toast('Seed copied');
   });
   diffEasy.onclick = ()=>{ difficulty='easy'; saveProfile(); markDiffButtons(); };
   diffMedium.onclick = ()=>{ difficulty='medium'; saveProfile(); markDiffButtons(); };
   diffHard.onclick = ()=>{ difficulty='hard'; saveProfile(); markDiffButtons(); };
   btnHome.onclick = ()=>{ initStart(); };
 
-  // Pause menu buttons
+  // Pause menu
   btnUnpause.addEventListener('click', ()=>togglePause(false));
   btnUnpauseDelay.addEventListener('click', startDelayedResume);
 
-  // Secret modal + coin giver w/ cooldown
+  // Secret
   let lastGive = 0;
   function renderBotControls(){
     botControls.style.display = profile.botUnlocked ? 'block' : 'none';
@@ -787,6 +958,7 @@
   secretPanel.addEventListener('keydown', (e)=>{ if(e.key==='Escape'){ closePanel('secretPanel'); }});
   shopPanel.addEventListener('keydown', (e)=>{ if(e.key==='Escape'){ closePanel('shopPanel'); }});
   pausePanel.addEventListener('keydown', (e)=>{ if(e.key==='Escape'){ closePanel('pausePanel'); }});
+  statsPanel.addEventListener('keydown', (e)=>{ if(e.key==='Escape'){ closePanel('statsPanel'); }});
 
   secretClose.addEventListener('click', ()=>closePanel('secretPanel'));
   secretSubmit.addEventListener('click', onSecretSubmit);
@@ -810,7 +982,7 @@
     toast('+1 Coin');
   });
 
-  // Shop open/close
+  // Shop UI
   function setBtnAfford(btn, can){
     btn.classList.toggle('btn-success', can);
     btn.classList.toggle('btn-danger', !can);
@@ -860,17 +1032,12 @@
       g.addColorStop(1, 'rgba(124,244,255,0)');
       ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
     }
-    // stars
-    ctx.save();
-    for(const s of stars){
-      s.x -= s.spd * (BASE.SCROLL*2);
-      if (s.x < -4){ s.x = W + RND(0,40); s.y = RND(0,H-BASE.FLOOR_H-10); }
-      const tw = lowPower ? 1 : (0.6 + 0.4*Math.sin((ms*0.002 + s.tw)*6.283));
-      ctx.globalAlpha = 0.6*tw;
-      ctx.fillStyle = '#cfe9ff';
-      ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, Math.PI*2); ctx.fill();
+    // stars parallax
+    drawStarField(stars, 2, 0.6, ms, BASE.SCROLL*2);
+    if (parallax){
+      drawStarField(stars2, 3, 0.45, ms, BASE.SCROLL*2.8);
+      drawStarField(stars3, 4, 0.35, ms, BASE.SCROLL*3.6);
     }
-    ctx.globalAlpha=1; ctx.restore();
 
     // floor
     if (theme.startsWith('static') && staticPattern){
@@ -889,6 +1056,19 @@
       ctx.stroke();
     }
   }
+  function drawStarField(field, maxAlpha, twAlpha, ms, base){
+    ctx.save();
+    for(const s of field){
+      s.x -= s.spd * base;
+      if (s.x < -4){ s.x = W + (seededMode?SRND(0,40):Math.random()*40); s.y = (seededMode?SRND(0,H-BASE.FLOOR_H-10):Math.random()*(H-BASE.FLOOR_H-10)); }
+      const tw = lowPower ? 1 : (0.6 + 0.4*Math.sin((ms*0.002 + s.tw)*6.283));
+      ctx.globalAlpha = twAlpha*tw;
+      ctx.fillStyle = '#cfe9ff';
+      ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, Math.PI*2); ctx.fill();
+    }
+    ctx.globalAlpha=1; ctx.restore();
+  }
+
   function pipeGradient(x){
     const theme = document.body.getAttribute('data-theme');
     if (theme.startsWith('static') && staticPattern){ return staticPattern; }
@@ -901,8 +1081,8 @@
     for(const p of pipes){
       let gy = p.gapY;
       if (moving){
-        const amp = (difficulty==='hard' ? 18 : 10);
-        gy += Math.sin(ms*0.001 + p.movePhase) * amp * clamp(ramp,0.2,1);
+        const amp = (difficulty==='hard' ? 18 : 10) * (0.6 + 0.4*rampPercent());
+        gy += Math.sin(ms*0.001 + p.movePhase) * amp;
       }
       const broken = p.broken;
 
@@ -1021,14 +1201,16 @@
      ========================= */
   function update(ms, step){
     timeMs = ms;
+
+    // deterministic ramp
+    ramp = 0.2 + 0.8*rampPercent();
     const diff = DIFFS[difficulty];
-    ramp = clamp(ramp + step*(1/60000)*1.0, 0.2, 1.0);
 
     if (diff.wind && !lowPower){
       wind.t -= step;
       if (wind.t<=0){
-        wind.t = RND(3000,7000);
-        wind.vx = RND(-0.05, 0.05) * ramp;
+        wind.t = (seededMode? SRND(3000,7000): (3000+Math.random()*4000));
+        wind.vx = (seededMode? SRND(-0.05,0.05):(Math.random()*0.1-0.05)) * (0.3 + 0.7*ramp);
       }
     }else wind.vx = 0;
 
@@ -1045,7 +1227,8 @@
 
     for(const p of pipes){ p.x -= speed * dtScaled; }
     if (pipes.length && pipes[0].x < -BASE.PIPE_W-10){
-      pipes.shift();
+      const removed = pipes.shift();
+      if (removed && removed.passed) pipesPassed++;
       rings = rings.filter(r=>r.x>-30 && !r.taken);
       coins = coins.filter(c=>c.x>-30 && !c.taken);
       pickups = pickups.filter(pk=>pk.x>-30 && !pk.taken);
@@ -1092,7 +1275,8 @@
       if (r.taken) continue;
       const rr = (r.r + bird.r - 2)*(active.shrinkMs>0?0.8:1);
       if (dist2(r.x,r.y,bird.x,bird.y) <= rr*rr){
-        r.taken=true; ringCount++;
+        r.taken=true; stats.ringsCollected++;
+        ringCount++;
         if (ringCount >= BASE.SHIELD_NEED){ ringCount=0; shieldMs = BASE.SHIELD_TIME * UP.duration.value(profile.upgrades.duration); beep(1200,0.12,0.06); }
         else beep(980,0.05,0.05);
         addXP(3*xpMultiplier());
@@ -1103,7 +1287,7 @@
       if (c.taken) continue;
       const rr = (c.r + bird.r - 4)*(active.shrinkMs>0?0.8:1);
       if (dist2(c.x,c.y,bird.x,bird.y) <= rr*rr){
-        c.taken=true;
+        c.taken=true; stats.coinsCollected++;
         const value = Math.ceil(c.v * scoreMultiplier());
         profile.coins += value;
         addXP(2*xpMultiplier());
@@ -1114,7 +1298,7 @@
     for(const pk of pickups){
       if (pk.taken) continue;
       const rr = (pk.r + bird.r - 2)*(active.shrinkMs>0?0.8:1);
-      if (dist2(pk.x,pk.y,bird.x,bird.y) <= rr*rr){ pk.taken=true; applyPower(pk.kind); }
+      if (dist2(pk.x,pk.y,bird.x,bird.y) <= rr*rr){ pk.taken=true; stats.puCollected++; applyPower(pk.kind); }
     }
 
     if (shieldMs>0){ shieldMs -= dtScaled; if (shieldMs<0) shieldMs=0; }
@@ -1143,7 +1327,6 @@
     levelText.textContent = `Lvl ${profile.level} (${req-profile.xp}xp to ${profile.level+1})`;
     xpFill.style.width = `${clamp((profile.xp/req)*100,0,100)}%`;
 
-    // Effect timers
     const parts=[];
     if (active.magnetMs>0) parts.push(`Magnet ${(active.magnetMs/1000).toFixed(1)}s`);
     if (active.slowMs>0) parts.push(`Slow ${(active.slowMs/1000).toFixed(1)}s`);
@@ -1176,27 +1359,9 @@
   }
 
   /* =========================
-     Smart Bot (Auto mode)
-     - anticipates next gap
-     - prefers nearby coins/rings/powerups if safe
+     Smart Bot (Auto)
      ========================= */
   function botThink(step, speed){
-    // Lookahead window scales with speed
-    const lookX = 220 + 200 * clamp(ramp,0,1);
-    // Candidate targets ahead
-    let target = null;
-    let bestScore = -Infinity;
-
-    // Prioritize powerups > rings > coins if roughly aligned with safe path
-    function consider(obj, y, weight, extra=0){
-      const dx = obj.x - bird.x;
-      if (dx < 40 || dx > lookX) return;
-      const dy = Math.abs(y - bird.y);
-      const sc = weight - dy*0.02 - dx*0.002 + extra;
-      if (sc > bestScore){ bestScore=sc; target={x:obj.x, y}; }
-    }
-
-    // Next pipe gap (main safe center)
     const next = pipes.find(p=>p.x+BASE.PIPE_W>bird.x-8);
     if (!next) return;
     const gy = next._gy ?? next.gapY;
@@ -1204,38 +1369,36 @@
     const gapTopSafe = gy + 10;
     const gapBotSafe = gy + next.gapH - 10;
 
-    // Prefer items within/near the gap corridor
-    for(const pk of pickups){ if (pk.taken) continue; consider(pk, pk.y, 12); }
-    for(const r of rings){ if (r.taken) continue; consider(r, r.y, 10); }
-    for(const c of coins){ if (c.taken) continue; consider(c, c.y, 8); }
+    // Candidate target selection (items in safe corridor)
+    let targetY = gapCenterY;
+    let best = -1;
+    function scoreItem(x,y,weight){
+      const dx = x - bird.x; if (dx<30 || dx>260) return -1;
+      const dy = Math.abs(y - gapCenterY);
+      return weight - dy*0.02 - dx*0.004;
+    }
+    for(const pk of pickups){ if (!pk.taken){ const sc = scoreItem(pk.x, pk.y, 12); if (sc>best){ best=sc; targetY=pk.y; } } }
+    for(const r of rings){ if (!r.taken){ const sc = scoreItem(r.x, r.y, 10); if (sc>best){ best=sc; targetY=r.y; } } }
+    for(const c of coins){ if (!c.taken){ const sc = scoreItem(c.x, c.y, 8);  if (sc>best){ best=sc; targetY=c.y; } } }
 
-    // Always include gap center as fallback with slight penalty vs collectibles
-    consider({x: next.x+BASE.PIPE_W+18}, gapCenterY, 7, 0.5);
-
-    if (!target) target = { x: next.x+BASE.PIPE_W+18, y: gapCenterY };
-
-    // Predict simple ballistic path ahead to target
-    const dx = Math.max(1, target.x - bird.x);
-    const ticks = dx / (speed || (BASE.SCROLL*DIFFS[difficulty].speed));
-    // Predict y if no flap
-    const vyPred = bird.vy + BASE.G * ticks;
-    const yPred = bird.y + vyPred * ticks;
-
-    // Ensure we end up inside safe band when crossing pipe mouth
+    // Predict mouth crossing to time flaps early
     const toMouth = Math.max(1, (next.x+BASE.PIPE_W - bird.x));
     const ticksMouth = toMouth / (speed || (BASE.SCROLL*DIFFS[difficulty].speed));
     const vyM = bird.vy + BASE.G * ticksMouth;
     const yM = bird.y + vyM * ticksMouth;
 
     const margin = 6 + (difficulty==='hard'?0:6);
-    const needRiseForTarget = yPred > target.y + margin;
-    const needRiseForMouth = (yM > gapBotSafe - 4);
-    const tooHighForMouth = (yM - bird.r < gapTopSafe + 2);
+    const needRiseForTarget = bird.y > targetY + margin;
+    const willHitFloor = (yM + bird.r > H - BASE.FLOOR_H - 4);
+    const willDropBelowGap = (yM > gapBotSafe - 4);
+    const willHitUpper = (yM - bird.r < gapTopSafe + 2);
 
-    // Decision: flap if dropping below path or approaching floor/mouth danger
-    if (needRiseForTarget || needRiseForMouth || (bird.y + bird.r > H - BASE.FLOOR_H - 8) || tooHighForMouth){
-      flap();
+    // Rocket if necessary (predict imminent wall bonk)
+    if (active.rocketCooldown<=0 && next && (willDropBelowGap || willHitUpper)){
+      // only use if mouth is soon
+      if (toMouth < 90){ applyPower('rocket'); return; }
     }
+    if (needRiseForTarget || willHitFloor || willDropBelowGap || willHitUpper){ flap(); }
   }
 
   /* =========================
@@ -1247,6 +1410,7 @@
     return dx*dx + dy*dy <= cr*cr;
   }
   function dist2(ax,ay,bx,by){ const dx=ax-bx, dy=ay-by; return dx*dx+dy*dy; }
+  const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
 
   /* =========================
      Loop
@@ -1264,7 +1428,6 @@
       acc -= dt;
     }
 
-    // Always render while running (so countdown & pause overlay show)
     ctx.clearRect(0,0,W,H);
     drawBackground(now);
     drawPipes(now);
@@ -1274,7 +1437,6 @@
     drawBird(now);
     drawHUD();
 
-    // Handle delayed resume countdown
     if (paused && delayResumeMs>0){
       delayResumeMs -= frame;
       if (delayResumeMs <= 0){
@@ -1288,14 +1450,105 @@
   }
 
   /* =========================
+     Share Card (26)
+     ========================= */
+  async function generateShareCard(){
+    const w=900, h=470;
+    const c = document.createElement('canvas');
+    c.width = w; c.height = h;
+    const g = c.getContext('2d');
+
+    // bg
+    const bg = g.createLinearGradient(0,0,w,h);
+    bg.addColorStop(0,'#0b0f1a'); bg.addColorStop(1,'#121a2b');
+    g.fillStyle=bg; g.fillRect(0,0,w,h);
+
+    // title
+    g.fillStyle='#7cf4ff';
+    g.font='bold 28px system-ui,Segoe UI,Roboto';
+    g.fillText('Flappy Static+ — StaticQuasar931', 24, 42);
+
+    // score block
+    g.fillStyle='#eaf3ff';
+    g.font='900 96px system-ui,Segoe UI,Roboto';
+    g.fillText(String(Math.floor(score)), 24, 150);
+    g.font='bold 20px system-ui,Segoe UI,Roboto';
+    g.fillText(`Best: ${Math.floor(profile.best)} • Mode: ${DIFFS[difficulty].name}${runSeedStr?` • Seed: ${runSeedStr}`:''}`, 26, 180);
+
+    // link
+    const url='https://sites.google.com/view/staticquasar931/gm3z';
+    g.fillStyle='#98a4b3';
+    g.fillText(url, 26, 210);
+
+    // qr
+    try{
+      if (qrImg.complete){
+        const qSize=180;
+        g.drawImage(qrImg, w-qSize-24, h-qSize-24, qSize, qSize);
+        g.fillStyle='#98a4b3'; g.font='bold 14px system-ui';
+        g.fillText('Scan to play', w-qSize-24, h-qSize-30);
+      }
+    }catch(e){}
+
+    // footer
+    g.fillStyle='#98a4b3';
+    g.font='12px system-ui,Segoe UI,Roboto';
+    g.fillText('Share this image! © StaticQuasar931', 24, h-20);
+
+    const a = document.createElement('a');
+    a.download = `flappy_static_plus_${Math.floor(score)}.png`;
+    a.href = c.toDataURL('image/png');
+    a.click();
+  }
+
+  /* =========================
+     Stats Panel (17)
+     ========================= */
+  function renderStats(){
+    const spawnedCoins = stats.coinsSpawned|0, collectedCoins=stats.coinsCollected|0;
+    const spawnedRings = stats.ringsSpawned|0, collectedRings=stats.ringsCollected|0;
+    const puSpawn = stats.puSpawned|0, puColl=stats.puCollected|0;
+    const runs = stats.runs|0;
+    const avgScore = runs? (stats.totalScore/runs).toFixed(1): '0.0';
+    const missedCoins = Math.max(0, spawnedCoins - collectedCoins);
+    const missedRings = Math.max(0, spawnedRings - collectedRings);
+    const playTimeMin = Math.floor((stats.totalTimeMs||0)/60000);
+
+    statsGrid.innerHTML = `
+      ${statCard('Runs', runs)}
+      ${statCard('Best Score', stats.best|0)}
+      ${statCard('Average Score', avgScore)}
+      ${statCard('Total Score', stats.totalScore|0)}
+      ${statCard('Play Time (min)', playTimeMin)}
+      ${statCard('Coins Spawned', spawnedCoins)}
+      ${statCard('Coins Collected', collectedCoins)}
+      ${statCard('Coins Missed', missedCoins)}
+      ${statCard('Rings Spawned', spawnedRings)}
+      ${statCard('Rings Collected', collectedRings)}
+      ${statCard('Rings Missed', missedRings)}
+      ${statCard('Power-ups Spawned', puSpawn)}
+      ${statCard('Power-ups Collected', puColl)}
+      ${statCard('Win Streak (≥10)', stats.winStreak|0)}
+      ${statCard('Lose Streak (<10)', stats.loseStreak|0)}
+      ${statCard('Best Win Streak', stats.bestWinStreak|0)}
+      ${statCard('Best Lose Streak', stats.bestLoseStreak|0)}
+      ${statCard('Longest <5 Streak', stats.bestLowStreak|0)}
+    `;
+  }
+  function statCard(title, value){
+    return `<div class="stat-card"><p class="stat-title">${title}</p><p class="stat-value">${value}</p></div>`;
+  }
+  closeStats.addEventListener('click', ()=>closePanel('statsPanel'));
+
+  /* =========================
      Start / Lifecycle
      ========================= */
   function initStart(){
-    // defaults
     const themeSaved = localStorage.getItem('fs_theme') || 'dark';
     selTheme.value = themeSaved;
     setTheme(themeSaved);
     selDiff.value = difficulty;
+    chkPractice.checked = false; seedInput.value = '';
     bestLine.textContent = profile.best ? `Best: ${Math.floor(profile.best)} • Coins: ${profile.coins} • Level: ${profile.level}` : `New? Try for 10+ to warm up.`;
     basePanel='start'; activePanelId=null;
     showOverlay(); hideAllPanels(); startPanel.style.display='block';
@@ -1317,7 +1570,12 @@
   updateTouchOverlay();
   window.addEventListener('resize', updateTouchOverlay, {passive:true});
 
-  // Global key handling
+  // Global input
+  const touchZone = document.getElementById('touchZone');
+  const doTap=(ev)=>{ ev.preventDefault(); flap(); };
+  touchZone.addEventListener('pointerdown', doTap, {passive:false});
+  canvas.addEventListener('pointerdown', doTap, {passive:false});
+
   document.addEventListener('keydown', (e)=>{
     if (e.repeat) return;
     const activeEl = document.activeElement;
@@ -1329,35 +1587,28 @@
       e.code==='KeyW' || e.code==='KeyA' || e.code==='KeyS' || e.code==='KeyD';
 
     if (e.code==='KeyP' || e.code==='Escape'){
-      // If a modal is open, close that modal first; else toggle pause
       if (activePanelId){ e.preventDefault(); closePanel(activePanelId); return; }
       e.preventDefault(); togglePause(!paused); return;
     }
     if (e.code==='KeyM'){ toggleMute(); return; }
     if (e.code==='KeyR'){ softReset(); return; }
 
-    // Space/Enter: Start from Start or GameOver, or flap in-run
+    // Space/Enter/WASD/Arrows: Start from Start/GameOver, or flap in-run
     if (isFlapKey){
-      // If in base start/gameover & not focusing an input → start new round
       if (!running && (basePanel==='start' || basePanel==='gameover') && !isTyping){
         e.preventDefault(); startGame(); return;
       }
-      // If pause menu is open and user presses Enter/Space, treat as Unpause
       if (activePanelId==='pausePanel'){
         e.preventDefault(); togglePause(false); return;
       }
-      // Otherwise, flap
       if (!isTyping){ e.preventDefault(); flap(); }
       return;
     }
   }, {passive:false});
 
-  // Kick
+  // Boot
   initStart();
 
-  /* =========================
-     Utility: toast upon load errors etc.
-     ========================= */
 })(); 
 </script>
 </body>
